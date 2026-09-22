@@ -250,6 +250,10 @@ body {
   flex-direction: column;
 }
 
+.comments-panel[hidden] {
+  display: none;
+}
+
 .comments-panel-inner {
   display: flex;
   flex-direction: column;
