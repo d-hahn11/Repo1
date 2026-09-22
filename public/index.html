@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>The Standings</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;1,9..144,500&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <h1>The Standings</h1>
+    <div class="topbar-meta">
+      <span id="update-status">—</span>
+      <button id="run-update-btn" class="btn btn-ghost">Run weekly update</button>
+    </div>
+  </div>
+</header>
+
+<main class="board">
+  <section class="add-member">
+    <input id="new-member-name" type="text" placeholder="Add someone to the board" maxlength="40">
+    <button id="add-member-btn" class="btn btn-primary">Add</button>
+  </section>
+
+  <ol id="member-list" class="member-list"></ol>
+
+  <p id="empty-state" class="empty-state" hidden>
+    Nobody's on the board yet. Add the first person above to start ranking.
+  </p>
+</main>
+
+<div id="comments-panel" class="comments-panel" hidden>
+  <div class="comments-panel-inner">
+    <div class="comments-header">
+      <h2 id="comments-title">Comments</h2>
+      <button id="close-comments" class="btn btn-ghost">Close</button>
+    </div>
+    <ul id="comments-list" class="comments-list"></ul>
+    <form id="comment-form" class="comment-form">
+      <input id="comment-author" type="text" placeholder="Your name" maxlength="30">
+      <textarea id="comment-text" placeholder="What did they do?" maxlength="500" rows="2"></textarea>
+      <button type="submit" class="btn btn-primary">Post</button>
+    </form>
+  </div>
+</div>
+<div id="comments-backdrop" class="comments-backdrop" hidden></div>
+
+<script src="app.js"></script>
+</body>
+</html>
