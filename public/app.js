@@ -2,11 +2,14 @@ const listEl = document.getElementById("member-list");
 const emptyStateEl = document.getElementById("empty-state");
 const updateStatusEl = document.getElementById("update-status");
 const runUpdateBtn = document.getElementById("run-update-btn");
+const tabsEl = document.getElementById("category-tabs");
 
-let members = [];
-let previousRanks = {}; // memberId -> rank from the run before last, for move indicators
+let categories = [];
+let currentCategoryId = localStorage.getItem("standings:lastCategoryId") || null;
+let rankings = []; // current category's people, ranked
+let previousRanks = {}; // personId -> rank from the run before last, for move indicators
 let draggedId = null;
-let activeCommentsMemberId = null;
+let activeCommentsPersonId = null;
 
 async function api(path, options) {
   const res = await fetch(path, {
@@ -20,43 +23,113 @@ async function api(path, options) {
   return res.status === 204 ? null : res.json();
 }
 
-async function loadAll() {
-  const [membersData, runs, settings] = await Promise.all([
-    api("/api/members"),
-    api("/api/weekly-runs"),
-    api("/api/settings")
+// ---- Bootstrapping ----
+
+async function init() {
+  categories = await api("/api/categories");
+  if (!categories.find((c) => c.id === currentCategoryId)) {
+    currentCategoryId = categories[0].id;
+  }
+  renderTabs();
+  await loadCategory();
+}
+
+async function loadCategory() {
+  const [rankingsData, runs] = await Promise.all([
+    api(`/api/categories/${currentCategoryId}/rankings`),
+    api(`/api/categories/${currentCategoryId}/weekly-runs`)
   ]);
-  members = membersData;
+  rankings = rankingsData;
 
   previousRanks = {};
   if (runs.length >= 2) {
-    runs[1].snapshot.forEach((s) => { previousRanks[s.memberId] = s.rank; });
+    runs[1].snapshot.forEach((s) => { previousRanks[s.personId] = s.rank; });
   }
 
-  renderStatus(settings);
+  const category = categories.find((c) => c.id === currentCategoryId);
+  renderStatus(category);
   renderMembers();
 }
 
-function renderStatus(settings) {
-  if (settings.lastWeeklyUpdate) {
-    const d = new Date(settings.lastWeeklyUpdate);
+function renderStatus(category) {
+  if (category && category.lastWeeklyUpdate) {
+    const d = new Date(category.lastWeeklyUpdate);
     updateStatusEl.textContent = `Last updated ${d.toLocaleDateString(undefined, { month: "short", day: "numeric" })}`;
   } else {
     updateStatusEl.textContent = "Not updated yet";
   }
 }
 
+// ---- Category tabs ----
+
+function renderTabs() {
+  tabsEl.innerHTML = "";
+  categories.forEach((cat) => {
+    const tab = document.createElement("button");
+    tab.className = "tab" + (cat.id === currentCategoryId ? " active" : "");
+    tab.dataset.id = cat.id;
+    tab.innerHTML = `<span>${escapeHtml(cat.name)}</span>` +
+      (categories.length > 1 ? `<span class="tab-remove" data-id="${cat.id}" title="Delete category">✕</span>` : "");
+    tabsEl.appendChild(tab);
+  });
+
+  const addTab = document.createElement("button");
+  addTab.className = "tab tab-add";
+  addTab.id = "add-category-btn";
+  addTab.textContent = "+ New category";
+  tabsEl.appendChild(addTab);
+}
+
+tabsEl.addEventListener("click", async (e) => {
+  const removeBtn = e.target.closest(".tab-remove");
+  const addBtn = e.target.closest("#add-category-btn");
+  const tab = e.target.closest(".tab:not(.tab-add)");
+
+  if (removeBtn) {
+    e.stopPropagation();
+    const cat = categories.find((c) => c.id === removeBtn.dataset.id);
+    if (!confirm(`Delete the "${cat.name}" category? This only removes this leaderboard, not the people in it.`)) return;
+    await api(`/api/categories/${removeBtn.dataset.id}`, { method: "DELETE" });
+    categories = await api("/api/categories");
+    if (currentCategoryId === removeBtn.dataset.id) currentCategoryId = categories[0].id;
+    renderTabs();
+    await loadCategory();
+    return;
+  }
+
+  if (addBtn) {
+    const name = prompt("Name this category (e.g. \"Funniest\", \"Most Helpful\"):");
+    if (!name || !name.trim()) return;
+    const created = await api("/api/categories", { method: "POST", body: JSON.stringify({ name: name.trim() }) });
+    categories = await api("/api/categories");
+    currentCategoryId = created.id;
+    localStorage.setItem("standings:lastCategoryId", currentCategoryId);
+    renderTabs();
+    await loadCategory();
+    return;
+  }
+
+  if (tab) {
+    currentCategoryId = tab.dataset.id;
+    localStorage.setItem("standings:lastCategoryId", currentCategoryId);
+    renderTabs();
+    await loadCategory();
+  }
+});
+
+// ---- Rendering the board ----
+
 function renderMembers() {
   listEl.innerHTML = "";
-  emptyStateEl.hidden = members.length > 0;
+  emptyStateEl.hidden = rankings.length > 0;
 
-  members.forEach((m) => {
+  rankings.forEach((m) => {
     const row = document.createElement("li");
     row.className = "member-row";
     row.draggable = true;
-    row.dataset.id = m.id;
+    row.dataset.id = m.personId;
 
-    const prevRank = previousRanks[m.id];
+    const prevRank = previousRanks[m.personId];
     let moveHtml = "";
     if (prevRank !== undefined && prevRank !== m.rank) {
       const delta = prevRank - m.rank;
@@ -73,15 +146,14 @@ function renderMembers() {
           ${moveHtml}
         </div>
         <div class="member-sub">
-          <button class="comment-toggle" data-id="${m.id}">comments</button>
+          <button class="comment-toggle" data-id="${m.personId}">comments</button>
           &middot; this week: ${m.pendingScore > 0 ? "+" : ""}${m.pendingScore}
         </div>
       </div>
       <div class="member-actions">
-        <button class="vote-btn up" data-id="${m.id}" data-dir="up" title="Upvote">↑</button>
-        <span class="pending-score"></span>
-        <button class="vote-btn down" data-id="${m.id}" data-dir="down" title="Downvote">↓</button>
-        <button class="remove-btn" data-id="${m.id}" title="Remove">✕</button>
+        <button class="vote-btn up" data-id="${m.personId}" data-dir="up" title="Upvote">↑</button>
+        <button class="vote-btn down" data-id="${m.personId}" data-dir="down" title="Downvote">↓</button>
+        <button class="remove-btn" data-id="${m.personId}" title="Remove from the whole board">✕</button>
       </div>
     `;
     listEl.appendChild(row);
@@ -104,18 +176,21 @@ listEl.addEventListener("click", async (e) => {
   if (voteBtn) {
     const id = voteBtn.dataset.id;
     const direction = voteBtn.dataset.dir;
-    const member = members.find((m) => m.id === id);
-    member.pendingScore += direction === "up" ? 1 : -1;
+    const ranking = rankings.find((m) => m.personId === id);
+    ranking.pendingScore += direction === "up" ? 1 : -1;
     renderMembers();
-    await api(`/api/members/${id}/vote`, { method: "POST", body: JSON.stringify({ direction }) });
+    await api(`/api/categories/${currentCategoryId}/people/${id}/vote`, {
+      method: "POST",
+      body: JSON.stringify({ direction })
+    });
   }
 
   if (removeBtn) {
     const id = removeBtn.dataset.id;
-    const member = members.find((m) => m.id === id);
-    if (!confirm(`Remove ${member.name} from the board?`)) return;
-    await api(`/api/members/${id}`, { method: "DELETE" });
-    await loadAll();
+    const ranking = rankings.find((m) => m.personId === id);
+    if (!confirm(`Remove ${ranking.name} from the whole board (every category)?`)) return;
+    await api(`/api/people/${id}`, { method: "DELETE" });
+    await loadCategory();
   }
 
   if (commentToggle) {
@@ -123,7 +198,7 @@ listEl.addEventListener("click", async (e) => {
   }
 });
 
-// ---- Add member ----
+// ---- Add person (global, joins every category) ----
 
 document.getElementById("add-member-btn").addEventListener("click", addMember);
 document.getElementById("new-member-name").addEventListener("keydown", (e) => {
@@ -135,11 +210,11 @@ async function addMember() {
   const name = input.value.trim();
   if (!name) return;
   input.value = "";
-  await api("/api/members", { method: "POST", body: JSON.stringify({ name }) });
-  await loadAll();
+  await api("/api/people", { method: "POST", body: JSON.stringify({ name }) });
+  await loadCategory();
 }
 
-// ---- Drag to reorder ----
+// ---- Drag to reorder (within current category only) ----
 
 listEl.addEventListener("dragstart", (e) => {
   const row = e.target.closest(".member-row");
@@ -167,43 +242,46 @@ listEl.addEventListener("drop", async (e) => {
   if (!targetRow || targetRow.dataset.id === draggedId) return;
 
   const targetId = targetRow.dataset.id;
-  const fromIndex = members.findIndex((m) => m.id === draggedId);
-  const toIndex = members.findIndex((m) => m.id === targetId);
-  const [moved] = members.splice(fromIndex, 1);
-  members.splice(toIndex, 0, moved);
-  members.forEach((m, i) => { m.rank = i + 1; });
+  const fromIndex = rankings.findIndex((m) => m.personId === draggedId);
+  const toIndex = rankings.findIndex((m) => m.personId === targetId);
+  const [moved] = rankings.splice(fromIndex, 1);
+  rankings.splice(toIndex, 0, moved);
+  rankings.forEach((m, i) => { m.rank = i + 1; });
   renderMembers();
 
-  await api("/api/reorder", { method: "POST", body: JSON.stringify({ order: members.map((m) => m.id) }) });
+  await api(`/api/categories/${currentCategoryId}/reorder`, {
+    method: "POST",
+    body: JSON.stringify({ order: rankings.map((m) => m.personId) })
+  });
 });
 
-// ---- Comments panel ----
+// ---- Comments panel (shared across categories) ----
 
 const panel = document.getElementById("comments-panel");
 const backdrop = document.getElementById("comments-backdrop");
 const commentsTitle = document.getElementById("comments-title");
 const commentsList = document.getElementById("comments-list");
 
-async function openComments(memberId) {
-  activeCommentsMemberId = memberId;
-  const member = members.find((m) => m.id === memberId);
-  commentsTitle.textContent = `${member.name} — comments`;
+async function openComments(personId) {
+  activeCommentsPersonId = personId;
+  const person = rankings.find((m) => m.personId === personId);
+  commentsTitle.textContent = `${person.name} — comments`;
   panel.hidden = false;
   backdrop.hidden = false;
-  await loadComments(memberId);
+  await loadComments(personId);
 }
 
 function closeComments() {
   panel.hidden = true;
   backdrop.hidden = true;
-  activeCommentsMemberId = null;
+  activeCommentsPersonId = null;
 }
 
 document.getElementById("close-comments").addEventListener("click", closeComments);
 backdrop.addEventListener("click", closeComments);
 
-async function loadComments(memberId) {
-  const comments = await api(`/api/members/${memberId}/comments`);
+async function loadComments(personId) {
+  const comments = await api(`/api/people/${personId}/comments`);
   commentsList.innerHTML = comments.length
     ? comments.map((c) => `
         <li class="comment-item">
@@ -221,7 +299,7 @@ commentsList.addEventListener("click", async (e) => {
   const btn = e.target.closest(".delete-comment");
   if (!btn) return;
   await api(`/api/comments/${btn.dataset.id}`, { method: "DELETE" });
-  await loadComments(activeCommentsMemberId);
+  await loadComments(activeCommentsPersonId);
 });
 
 document.getElementById("comment-form").addEventListener("submit", async (e) => {
@@ -229,20 +307,21 @@ document.getElementById("comment-form").addEventListener("submit", async (e) => 
   const author = document.getElementById("comment-author").value.trim() || "Anonymous";
   const text = document.getElementById("comment-text").value.trim();
   if (!text) return;
-  await api(`/api/members/${activeCommentsMemberId}/comments`, {
+  await api(`/api/people/${activeCommentsPersonId}/comments`, {
     method: "POST",
     body: JSON.stringify({ author, text })
   });
   document.getElementById("comment-text").value = "";
-  await loadComments(activeCommentsMemberId);
+  await loadComments(activeCommentsPersonId);
 });
 
-// ---- Weekly update ----
+// ---- Weekly update (current category only) ----
 
 runUpdateBtn.addEventListener("click", async () => {
-  if (!confirm("Run the weekly update now? This will lock in this week's votes as the new ranking.")) return;
-  await api("/api/weekly-update", { method: "POST" });
-  await loadAll();
+  const category = categories.find((c) => c.id === currentCategoryId);
+  if (!confirm(`Run the weekly update for "${category.name}" now? This locks in this week's votes as the new ranking.`)) return;
+  await api(`/api/categories/${currentCategoryId}/weekly-update`, { method: "POST" });
+  await loadCategory();
 });
 
-loadAll();
+init();

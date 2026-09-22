@@ -54,6 +54,56 @@ body {
   color: var(--ink-dim);
 }
 
+.category-tabs {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 0 20px 18px;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: transparent;
+  border: 1px solid var(--line);
+  color: var(--ink-dim);
+  border-radius: 20px;
+  padding: 6px 8px 6px 14px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.tab.active {
+  border-color: var(--gold);
+  color: var(--ink);
+  background: rgba(232, 163, 61, 0.1);
+}
+
+.tab-remove {
+  border: none;
+  background: none;
+  color: inherit;
+  opacity: 0.55;
+  font-size: 12px;
+  cursor: pointer;
+  padding: 2px 4px;
+}
+
+.tab-remove:hover { opacity: 1; color: var(--down); }
+
+.tab-add {
+  border-style: dashed;
+  color: var(--ink-dim);
+  padding: 6px 14px;
+}
+
+.tab-add:hover { color: var(--gold); border-color: var(--gold); }
+
 .board {
   max-width: 720px;
   margin: 0 auto;
